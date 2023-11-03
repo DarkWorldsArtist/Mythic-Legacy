@@ -1,0 +1,322 @@
+emote_script:
+    type: world
+    debug: false
+    enabled: true
+    events:
+        on player chats:
+            - inject chat_task instantly
+        on player joins:
+            - ~discordmessage id:chatBot channel:<server.flag[ServerChatChannel]> <discord_embed.with[author_name].as[<player.flag[chat.nick].if_null[<player.name>]> Joined.].with[author_icon_url].as[https://cravatar.eu/helmavatar/<player.flag[Player.UUID].if_null[<player.name>]>/190.png].with[color].as[<player.flag[chat.rolecolor].if_null[gray]>]>
+        on player quits:
+            - ~discordmessage id:chatBot channel:<server.flag[ServerChatChannel]> <discord_embed.with[author_name].as[<player.flag[chat.nick].if_null[<player.name>]> Left.].with[author_icon_url].as[https://cravatar.eu/helmavatar/<player.flag[Player.UUID].if_null[<player.name>]>/190.png].with[color].as[<player.flag[chat.rolecolor].if_null[gray]>]>
+        on shutdown:
+            - ~discordmessage id:chatBot channel:<server.flag[ServerChatChannel]> <discord_embed.with[author_name].as[Server Stopped.].with[color].as[<red>]>
+        on player completes advancement:
+            - if <context.message.strip_color.is_truthy>:
+                - ~discordmessage id:chatBot channel:<server.flag[ServerChatChannel]> <discord_embed.with[description].as[:tada: **<context.message.strip_color>** :tada:].with[author_name].as[].with[author_icon_url].as[https://cravatar.eu/helmavatar/<player.flag[Player.UUID].if_null[<player.name>]>/190.png].with[color].as[<player.flag[chat.rolecolor].if_null[gray]>]>
+
+
+
+
+
+
+Chat_task:
+    type: task
+    debug: false
+    enabled: true
+    script:
+        - ratelimit <player> 1t
+        - if <player.has_flag[nochat]>:
+            - stop
+        - determine passively cancelled
+        - if <context.message.exists>:
+            - define message <context.message>
+        - if <[message].if_null[null]> == null:
+            - define message <red>NULL
+        - foreach <[message].split> as:word:
+            - foreach <script[emote_masterlist]> as:emote:
+                - if <script[emote_masterlist].parsed_key[<[word].escaped>].exists>:
+                    - define message <[message].replace_text[<[word]>].with[<[emote].parsed_key[<[word]>]>]>
+                - if <server.flag[censor_masterlist].if_null[].contains[<[word]>]>:
+                    - define discordmessage <[message].replace_text[<[word]>].with[CENSORED]>
+                    - define message <[message].replace_text[<[word]>].with[<red>*****<reset>]>
+        - foreach <server.online_players>:
+            - if <player.flag[chat.prox].if_null[]> and !<player.location.find_players_within[100].contains[<[value]>]> or <[value].has_flag[chat.deaf]>:
+                - foreach next
+            - narrate <[message].unescaped> FORMAT:<[value].flag[chat.format].if_null[Main_chat_format].unescaped> targets:<[value]>
+        - if <secret[BotToken].exists> and <server.flag[ServerChatChannel]> and !<player.has_flag[chat.discordchatmute]>:
+            - ~discordmessage id:chatBot channel:<server.flag[ServerChatChannel]> <discord_embed.with[description].as[<[discordmessage].text_stripped.strip_color.if_null[<[message]>]>].with[author_name].as[<player.flag[chat.nick].if_null[<player.name>]>].with[author_icon_url].as[https://cravatar.eu/helmavatar/<player.flag[Player.UUID].if_null[<player.name>]>/190.png].with[color].as[<player.flag[chat.nickcolor].if_null[gray]>]>
+
+Bot_logic:
+    type: world
+    debug: false
+    enabled: true
+    events:
+        #Bot init
+        on server start:
+            - if <secret[BotToken].exists>:
+                - discordconnect id:chatBot token:<secret[BotToken]>
+                - wait 10s
+                - ~discordmessage id:chatBot channel:<server.flag[ServerChatChannel]> <discord_embed.with[author_name].as[Server Started.].with[color].as[<green>]>
+        on discord message received:
+            - wait 1t
+            - ratelimit <script> 1s
+            - if  !<context.new_message.author.is_bot> and <context.channel.contains_all_text[<server.flag[ServerChatChannel]>]>:
+                - define player <context.new_message.author.flag[UUID].if_null[]||<context.new_message.author.name>>
+                - if <context.new_message.author.has_flag[UUID]>:
+                    - define __player <context.new_message.author.flag[UUID]>
+                - narrate "<player[<context.new_message.author.flag[UUID].if_null[]>].flag[chat.icon].if_null[]><blue><bold>Discord<reset> <&color[<context.new_message.author.flag[UUID].flag[chat.nickcolor]>].if_null[<white>]><context.new_message.author.flag[UUID].flag[chat.nick].if_null[<context.new_message.author.flag[UUID].display_name||>].if_null[<context.new_message.author.name>]><reset>: <context.new_message.text.parse_color>" targets:<server.online_players>
+
+
+LinkMc_interaction:
+    type: world
+    debug: false
+    enabled: true
+    events:
+        on discord slash command name:LinkMc:
+            - define code <util.random_uuid>
+            - flag <context.interaction.user> linkcode:<[code]> expire:30m
+            - ~discordinteraction defer interaction:<context.interaction> ephemeral:true
+            - ~discordinteraction reply interaction:<context.interaction> "<context.interaction.user.mention>, Please run this command in minecraft:<n>``/linkmc <[code]>``<n><n>Code expires <element[&ltt:<util.time_now.epoch_millis.div[1000].before_last[.].add[1800]>:R&gt].unescaped>"
+
+
+SayAs_command:
+    type: command
+    description: .
+    permission: ChatControl.SayAs
+    usage: /sayas
+    debug: false
+    name: sayas
+    tab completion:
+        - foreach <server.players> as:player:
+            - define item <[player].parse[name]>
+            - define list:->:<[item]>
+        - determine <[list].if_null[<player>]>
+    script:
+        - define message <red>*<reset><context.args.exclude[<context.args.first>].if_null[<red>NULL].space_separated>
+        - define __player <context.args.get[1].if_null[<player>]>
+        - inject chat_task instantly
+
+
+
+discordchatmute_command:
+    type: command
+    description: Mute yourself in discord
+    usage: /discordchatmute
+    debug: false
+    name: discordchatmute
+    script:
+        - if !<player.has_flag[chat.discordchatmute]>:
+            - narrate "<&color[#ADD8E6]>Discord mute <green>Enabled"
+            - flag <player> chat.discordchatmute:true
+        - else:
+            - narrate "<&color[#ADD8E6]>Discord mute <red>Disabled"
+            - flag <player> chat.discordchatmute:!
+
+
+Deaf_command:
+    type: command
+    description: l
+    debug: false
+    usage: /deaf
+    name: deaf
+    script:
+        - if <player.has_flag[chat.deaf]>:
+            - narrate <green>Undeafened
+            - flag <player> chat.deaf:!
+        - else:
+            - narrate <red>Deafened
+            - flag <player> chat.deaf:true
+
+Censor_command:
+    type: command
+    description: l
+    debug: false
+    permission: mod
+    usage: /censor
+    name: censor
+    tab completion:
+        - if <context.args.get[1]> == Remove:
+            - foreach <server.flag[censor_masterlist]> as:word:
+                - define list:->:<[word]>
+            - determine <[list].if_null[]>
+    tab completions:
+        1: Add|Remove
+    script:
+        - if <context.args.get[1]> == Add:
+            - flag server censor_masterlist:->:<context.args.get[2]>
+        - if <context.args.get[1]> == Remove:
+            - flag server censor_masterlist:<-:<context.args.get[2]>
+
+LinkMc_command:
+    type: command
+    description: Linnkmc
+    usage: /LinkMc
+    name: LinkMc
+    aliases:
+        - mclink
+    script:
+        - foreach <discord[chatBot].groups.get[1].members> as:user:
+            - if <[user].flag[linkcode]> == <context.args.get[1].if_null[null]>:
+                - flag <[user]> UUID:<player>
+                - flag <player> Discord:<[user].if_null[null]>
+                - flag <[user]> linkcode:!
+                - narrate "<green>Your minecraft account has been linked to <reset><[user].name>.<n><green>Enjoy the new chat features!"
+                - stop
+        - narrate "<red>That code is not valid."
+
+
+RegisterDiscordCommands:
+    type: task
+    debug: false
+    enabled: false
+    script:
+        - ~discordcommand id:chatBot create name:linkmc group:<discord[chatBot].groups.get[1]> "description:Link your minecraft and discord for extra chat and gameplay features!"
+
+
+
+
+Bot_masterlist:
+    type: data
+    ServerChatChannel: 1124826343142592596
+
+
+
+emote_masterlist:
+    type: data
+    font-magic: <magic>
+    end-format: <reset><&font[default]>
+    font-hylian64: <reset><&font[hylian64]>
+    font-botwsheikah: <reset><&color[#3b8de4]><&font[botw-sheikah]>
+
+
+
+Vanilla_chat_format:
+    type: format
+    debug: false
+    format: <element[&lt].unescaped><[name]><element[&gt].unescaped> <[text]>
+
+
+Main_chat_format:
+    type: format
+    debug: false
+    format: <&color[<player.flag[chat.rolecolor]>]||<white>>[<player.flag[chat.roles.visible]||Explorer>]<reset> <player.flag[chat.icon].if_null[]><&color[<player.flag[chat.nickcolor].if_null[#FFFFFF].parse_color>]><player.flag[chat.nick].if_null[<player.name>]><reset>: <[text].parse_color>
+
+
+
+Omnichat_command:
+    type: command
+    usage: /Omnichat
+    name: Omnichat
+    debug: false
+    permission: admin.tools
+    tab completion:
+        1: Role
+    tab complete:
+        - if <player.is_op>:
+            - if <context.args.get[1].if_null[]> == null:
+                - define list Role|Colors
+            - if <context.args.get[1].if_null[]> == role and <context.args.get[2].if_null[]> == set:
+                - foreach <player.flag[chat.roles].if_null[Newcomer]>:
+                    - define list <[list]>:->:<[value].get[<[loop_index]>]>
+        - determine <[list].if_null[]>
+    description: .
+    script:
+        - define args <context.args.if_null[]>
+        - if <[args].get[1]> == role:
+            - if <[args].get[2]> == set and <player.flag[chat.roles].if_null[newcomer].contains_all_text[<[args].get[3]>]>:
+                - flag <player> chat.roles.visible:<[args].get[3]>
+                - narrate "Role changed to <[args].get[3]>"
+
+
+ClearChat_command:
+    type: command
+    description: ClearChat
+    debug: false
+    usage: /ClearChat
+    name: ClearChat
+    aliases:
+        - ChatClear
+    tab completion:
+        1: <player.name>
+    script:
+        - narrate <n><n><n><n><n><n><n><n><n><n><n><n><n><n><n><n><n><n><n><n><n><n><n>
+
+
+SetNick_command:
+    type: command
+    description: SetNick
+    usage: /SetNick
+    enabled: false
+    name: SetNick
+    aliases:
+        - nick
+        - nickname
+    tab completion:
+        1: <player.name>
+    script:
+        - if !<server.online_players.contains_all_text[<context.args.get[1]>]> and !<player.is_op>:
+            - narrate "<red>You cannont set your name to another player!"
+            - stop
+        - flag <player> chat.NICK:<context.args.get[1].if_null[]>
+        - narrate "<green>Nickname set to <&color[<player.flag[chat.nick].if_null[<player.name>].parse_color>]><context.args.get[1].if_null[<player.name>]>"
+
+
+RoleColor_command:
+    type: command
+    description: RoleColor
+    usage: /RoleColor
+    name: RoleColor
+    aliases:
+        - ColorRole
+    tab completion:
+        1: <player.name>
+    script:
+        - if <context.args.get[1].if_null[].length> == 7 and <context.args.get[1].if_null[].contains_all_text[#]>:
+            - flag <player> chat.rolecolor:<context.args.get[1].if_null[]>
+        - else:
+            - narrate "<red>That is not a valid hex code"
+
+NickColor_command:
+    type: command
+    description: NickColor
+    usage: /NickColor
+    name: NickColor
+    aliases:
+        - ColorNick
+    tab completion:
+        1: <player.name>
+    script:
+        - if <context.args.get[1].if_null[].length> == 7 and <context.args.get[1].if_null[].contains_all_text[#]>:
+            - flag <player> chat.nickcolor:<context.args.get[1].if_null[]>
+            - narrate "<green>Your nick has been set to <&color[<context.args.get[1].if_null[NULL]>]><player.name>"
+        - else:
+            - narrate "<red>That is not a valid hex code"
+
+
+ChatFormat_command:
+    type: command
+    description: ChatFormat
+    usage: /ChatFormat
+    name: ChatFormat
+    aliases:
+        - FormatChat
+    tab completion:
+        1: <proc[FindMatchingScript].context[_chat_format].parse[name].replace_text[_chat_format].to_sentence_case>
+    script:
+        - if <proc[FindMatchingScript].context[_chat_format].contains_all_text[<context.args.get[1].if_null[]>]>:
+            - flag <player> chat.format:<context.args.get[1].if_null[]>
+            - narrate "<green>Your chat format has been changed to <white><context.args.get[1].if_null[].to_sentence_case>"
+        - else:
+            - narrate "<red>That is not a valid chat format."
+
+SetRole_command:
+    type: command
+    description: SetRole
+    usage: /SetRole
+    name: SetRole
+    tab completion:
+        1: <player.flag[chat.roles].if_null[player]>
+    script:
+        - flag <player> chat.roles.visible:<context.args.get[1].if_null[]>
+        - narrate "<green>Role set to <&color[<player.flag[chat.rolecolor].if_null[#FFFFFF].parse_color>]><context.args.get[1]>"
